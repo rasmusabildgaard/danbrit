@@ -1,0 +1,317 @@
+// Danbrit Direct - B2B E-commerce Platform
+// Prisma Schema - baseret på PROJECT_SPEC.md
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================
+// PRODUKT MODELLER
+// ============================================
+
+model Product {
+  id          String      @id @default(cuid())
+  sku         String      @unique
+  oemNumber   String?
+  name        String
+  description String?
+  categoryId  String
+  category    Category    @relation(fields: [categoryId], references: [id])
+  ah          Int?        // Ampere-timer
+  voltage     Int?        // Volt
+  length      Int?        // mm
+  width       Int?        // mm
+  height      Int?        // mm
+  technology  String?     // AGM, GEL, Lead-acid, etc.
+  weight      Float?      // kg
+  imageUrl    String?
+  active      Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  orderLines  OrderLine[]
+  favorites   Favorite[]
+
+  @@index([categoryId])
+  @@index([sku])
+  @@index([oemNumber])
+}
+
+model Category {
+  id          String      @id @default(cuid())
+  name        String
+  slug        String      @unique
+  description String?
+  parentId    String?
+  parent      Category?   @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children    Category[]  @relation("CategoryHierarchy")
+  bcGroupCode String?     // Business Central varegruppe kode
+  sortOrder   Int         @default(0)
+  active      Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  products    Product[]
+  priceRules  PriceRule[]
+
+  @@index([parentId])
+  @@index([slug])
+}
+
+// ============================================
+// KUNDE MODELLER
+// ============================================
+
+model Customer {
+  id                String         @id @default(cuid())
+  email             String         @unique
+  passwordHash      String
+  customerNumber    String         @unique  // BC kundenummer
+  name              String
+  companyName       String?
+  phone             String?
+  vatNumber         String?        // CVR nummer
+  newsletterConsent Boolean        @default(false)
+  segmentId         String?
+  segment           CustomerGroup? @relation(fields: [segmentId], references: [id])
+  active            Boolean        @default(true)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  orders            Order[]
+  addresses         Address[]
+  favorites         Favorite[]
+
+  @@index([customerNumber])
+  @@index([segmentId])
+}
+
+model Address {
+  id          String   @id @default(cuid())
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  name        String
+  street      String
+  street2     String?
+  city        String
+  postalCode  String
+  country     String   @default("DK")
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  orders      Order[]
+
+  @@index([customerId])
+}
+
+model CustomerGroup {
+  id        String      @id @default(cuid())
+  code      String      @unique
+  name      String
+  bcCode    String?     // Business Central kundegruppe kode
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  customers Customer[]
+  discounts PriceRule[]
+}
+
+model PriceRule {
+  id              String         @id @default(cuid())
+  customerGroupId String
+  group           CustomerGroup  @relation(fields: [customerGroupId], references: [id], onDelete: Cascade)
+  categoryId      String?
+  category        Category?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  discountPercent Float
+  validFrom       DateTime?
+  validTo         DateTime?
+  active          Boolean        @default(true)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([customerGroupId])
+  @@index([categoryId])
+}
+
+model Favorite {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([customerId, productId])
+  @@index([customerId])
+}
+
+// ============================================
+// ORDRE MODELLER
+// ============================================
+
+model Order {
+  id              String      @id @default(cuid())
+  orderNumber     String      @unique @default(cuid())
+  customerId      String
+  customer        Customer    @relation(fields: [customerId], references: [id])
+  addressId       String?
+  address         Address?    @relation(fields: [addressId], references: [id])
+  bcOrderNumber   String?     // Business Central ordrenummer
+  status          OrderStatus @default(PENDING)
+  total           Float
+  currency        String      @default("DKK")
+  reference       String?     // Kundens reference/rekvisition
+  note            String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  items           OrderLine[]
+
+  @@index([customerId])
+  @@index([bcOrderNumber])
+  @@index([status])
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+model OrderLine {
+  id         String  @id @default(cuid())
+  orderId    String
+  order      Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product @relation(fields: [productId], references: [id])
+  sku        String  // Snapshot af SKU ved bestilling
+  name       String  // Snapshot af produktnavn
+  quantity   Int
+  unitPrice  Float
+  discount   Float?  // Rabat i procent
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+// ============================================
+// ADMIN MODELLER
+// ============================================
+
+model AdminUser {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  role         AdminRole @default(EDITOR)
+  active       Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  auditLogs    AuditLog[]
+}
+
+enum AdminRole {
+  ADMIN
+  EDITOR
+  SALES
+}
+
+// ============================================
+// INTEGRATION & LOGGING
+// ============================================
+
+model IntegrationLog {
+  id          String            @id @default(cuid())
+  type        IntegrationType
+  status      IntegrationStatus
+  endpoint    String?
+  request     Json?
+  response    Json?
+  errorMessage String?
+  duration    Int?              // ms
+  createdAt   DateTime          @default(now())
+
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum IntegrationType {
+  PRICE_LOOKUP
+  STOCK_LOOKUP
+  ORDER_CREATE
+  ORDER_STATUS
+  CUSTOMER_SYNC
+  PRODUCT_SYNC
+}
+
+enum IntegrationStatus {
+  SUCCESS
+  ERROR
+  TIMEOUT
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  adminUserId String
+  adminUser   AdminUser @relation(fields: [adminUserId], references: [id])
+  action      String   // CREATE, UPDATE, DELETE
+  entity      String   // Category, Campaign, etc.
+  entityId    String?
+  oldValue    Json?
+  newValue    Json?
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+
+  @@index([adminUserId])
+  @@index([entity])
+  @@index([createdAt])
+}
+
+// ============================================
+// CMS / KAMPAGNER (Fremtidig udvidelse)
+// ============================================
+
+model Campaign {
+  id              String    @id @default(cuid())
+  name            String
+  slug            String    @unique
+  description     String?
+  imageUrl        String?
+  customerGroupId String?   // Målrettet kundesegment (null = alle)
+  validFrom       DateTime?
+  validTo         DateTime?
+  active          Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([slug])
+  @@index([active])
+}
+
+model HeroSection {
+  id          String   @id @default(cuid())
+  title       String
+  subtitle    String?
+  imageUrl    String?
+  linkUrl     String?
+  linkText    String?
+  site        String   @default("dk") // "dk" eller "com"
+  sortOrder   Int      @default(0)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([site])
+  @@index([active])
+}
